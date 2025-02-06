@@ -9,7 +9,7 @@
 
 ### или создание пользователя после установки:
 
-```
+```bash
 useradd -m -G wheel -s /bin/bash sshuser
 ```
 
@@ -23,10 +23,9 @@ passwd sshuser
 
 ## Установка SSH сервера
 
-```
+```bash
 apt-get install openssh-server -y
-```
-```
+
 systemctl enable --now sshd
 ```
 
@@ -37,7 +36,7 @@ hostnamectl set-hostname имя_пк
 ```
 
 Для проверки корректности установки имени ПК выполнить команду:
-```
+```bash
 hostnamectl
 # или
 hostname
