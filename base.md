@@ -30,3 +30,18 @@ apt-get install openssh-server -y
 systemctl enable --now sshd
 ```
 
+## Установка имени ПК
+(через рут)
+```
+hostnamectl set-hostname имя_пк
+```
+
+Для проверки корректности установки имени ПК выполнить команду:
+```
+hostnamectl
+# или
+hostname
+# или
+cat /etc/hostname
+```
+
