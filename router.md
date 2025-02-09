@@ -30,6 +30,11 @@ BOOTPROTO=static
 CONFIG_IPV4=YES
 ```
 
+Перезапускаем сетевую службу:
+```
+systemctl restart network
+```
+
 ### 2) настраиваем DHCP-сервер
 В файле `/etc/dhcp/dhcpd.conf`
 ```
