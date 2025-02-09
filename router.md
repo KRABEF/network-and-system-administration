@@ -85,7 +85,12 @@ systemctl status dhcpd
 net.ipv4.ip_forward = 1
 ```
 
-Перезапускаем машину, проверяем IP Forwarding командой
+Применяем настройки вручную:
+```
+sysctl -p /etc/net/sysctl.conf
+```
+
+или перезапускаем машину, проверяем IP Forwarding командой
 ```
 sysctl net.ipv4.ip_forward
 ```
