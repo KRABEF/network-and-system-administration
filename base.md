@@ -19,7 +19,11 @@ useradd -m -G wheel -s /bin/bash sshuser
 passwd sshuser
 ```
 
-в файле `/etc/sudoers` раскомментировать строку: `WHEEL_USERS ALL=(ALL:ALL) NOPASSWD: ALL` для запуска утилиты sudo без дополнительноц аутентификации.
+Изменить права доступа к файлу `/etc/sudoers`:
+```bash
+chmod 600 /etc/sudoers
+```
+затем открыть файл в текстовом редакторе и раскомментировать строку: `WHEEL_USERS ALL=(ALL:ALL) NOPASSWD: ALL` для запуска утилиты sudo без дополнительной аутентификации.
 
 ## Установка SSH сервера
 
