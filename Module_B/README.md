@@ -433,3 +433,158 @@ subnet 192.168.33.0 netmask 255.255.255.0 { #сеть и маска подсет
 ```
 
 </details>
+
+
+
+## Настройка коммутаторов
+
+<details>
+  <summary>Настройка SW-HQ</summary>
+
+### Настройка SW-HQ
+
+1) В качестве коммутаторов используются: SW1-HQ, SW2-HQ, SW3-HQ, SW-DT
+2) Для каждого офиса устройства должны находиться в соответствующих VLAN:
+	- Клиенты - vlan110,
+	- Сервера – в vlan220,
+	- Администраторы – в vlan330.
+
+3) Создайте management интерфейсы на коммутаторах
+
+#### Конфигурация
+
+актуально для SW1-HQ, SW2-HQ и SW3-HQ
+
+<b>P.s. Внимание! в интерфейсах ens... не должно быть прочих файлов, кроме options, иначе порты не привяжутся</b>
+
+P.s. Название сетевых адаптеров в зависимости от используемого гипервизора может отличаться!
+
+Временное назначение ip-адреса (смотрящего в сторону r-hq):
+```
+ip link add link ens18 name ens18.330 type vlan id 330
+ip link set dev ens18.330 up
+ip addr add 192.168.11.200 dev ens18.330
+ip route add 0.0.0.0/0 via 192.168.11.1
+echo nameserver 8.8.8.8 > /etc/resolv.conf
+```
+
+Обновление пакетов и установка `openvswitch`:
+```bash
+apt-get update && apt-get install -y openvswitch
+```
+
+Включение `ovs` в автозагрузку:
+```
+systemctl enable --now openvswitch
+```
+
+проверка службы `ovs`:
+```
+systemctl status openvswitch
+```
+
+1. ens18 - R-HQ
+2. ens19 - _ - vlan220
+3. ens20 - srv-hq - vlan110 
+4. ens21 - __ - vlan220
+
+Создаем каталоги для ens19,ens20,ens21:
+```
+mkdir /etc/net/ifaces/ens{19,20,21}
+```
+
+Для моста:
+```
+mkdir /etc/net/ifaces/ovs0
+```
+Management интерфейс:
+```
+mkdir /etc/net/ifaces/mgmt
+```
+Не удалять настройки интерфейсов openvswitch:
+```
+sed -i "s/OVS_REMOVE=yes/OVS_REMOVE=no/g" /etc/net/ifaces/default/options
+```
+Конфигурируем мост `ovs0`:
+```
+TYPE=ovsbr
+HOST='ens18 ens19 ens20 ens21'
+```
+>- TYPE - тип интерфейса, bridge;
+>- HOST - добавляемые интерфейсы в bridge.
+
+Конфигурация `mgmt`:
+`/etc/net/ifaces/mgmt/options`
+```
+TYPE=ovsport
+BOOTPROTO=static
+CONFIG_IPV4=yes
+BRIDGE=ovs0
+VID=330
+```
+> TYPE - тип интерфейса (internal);  
+> BOOTPROTO - статически;  
+> CONFIG_IPV4 - использовать ipv4;  
+> BRIDGE - определяет к какому мосту необходимо добавить данный интерфейс;  
+> VID - определяет принадлежность интерфейса к VLAN.  
+
+Поднимаем сетевые интерфейсы:
+```
+echo -e "TYPE=ovsport\nCONFIG_IPV4=no\nONBOOT=yes\nBRIDGE=ovsbr0" | sudo tee /etc/net/ifaces/ens18/options
+```
+
+```
+cp /etc/net/ifaces/ens18/options /etc/net/ifaces/ens19/options
+cp /etc/net/ifaces/ens18/options /etc/net/ifaces/ens20/options
+cp /etc/net/ifaces/ens18/options /etc/net/ifaces/ens21/options
+```
+
+Назначаем Ip, default gateway на mgmt:
+```
+echo 192.168.11.201/24 > /etc/net/ifaces/mgmt/ipv4address
+```
+```
+echo default via 10.0.10.200 > /etc/net/ifaces/mgmt/ipv4route
+```
+Перезапуск network:
+```
+systemctl restart network
+```
+Проверка:
+```
+ip -c --br a
+ovs-vsctl show
+```
+
+ens18 - R-HQ делаем trunk и пропускаем VLANs:
+```
+ovs-vsctl set port ens18 trunk=110,220,330
+```
+ens19 - tag=220
+```
+ovs-vsctl set port ens19 tag=220
+```
+ens20 - tag=110:
+```
+ovs-vsctl set port ens20 tag=110
+```
+ens21 - tag=220
+```
+ovs-vsctl set port ens21 tag=220
+```
+Включаем инкапсулирование пакетов по 802.1q:
+```
+modprobe 8021q
+```
+Проверка:
+```bash
+lsmod | grep 8021q
+```
+Результат:
+```
+8021q           40960   0
+garp            16384   1   8021q
+mrp             20480   1   8021q
+```
+
+</details>
