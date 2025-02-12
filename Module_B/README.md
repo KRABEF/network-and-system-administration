@@ -293,7 +293,7 @@ apt-get install dhcp-server -y
 1) <b>VLAN 110 (Клиенты)</b>
     ```
     mkdir -p /etc/net/ifaces/enp0s8.110
-    echo "192.168.11.1/24" > /etc/net/ifaces/enp0s8.110/ipv4address
+    echo "192.168.11.1/26" > /etc/net/ifaces/enp0s8.110/ipv4address
     ```
     Создаем файл `options`:
     ```
@@ -306,7 +306,7 @@ apt-get install dhcp-server -y
 2) <b>VLAN 220 (Сервера)</b>
     ```
     mkdir -p /etc/net/ifaces/enp0s8.220
-    echo "192.168.11.65/24" > /etc/net/ifaces/enp0s8.220/ipv4address
+    echo "192.168.11.65/28" > /etc/net/ifaces/enp0s8.220/ipv4address
     ```
     Создаем файл `options`:
     ```
@@ -319,7 +319,7 @@ apt-get install dhcp-server -y
 3) <b>VLAN 330 (Администраторы)</b>
     ```
     mkdir -p /etc/net/ifaces/enp0s8.330
-    echo "192.168.11.81/24" > /etc/net/ifaces/enp0s8.330/ipv4address
+    echo "192.168.11.81/29" > /etc/net/ifaces/enp0s8.330/ipv4address
     ```
     Создаем файл `options`:
     ```
@@ -359,13 +359,14 @@ subnet 192.168.11.64 netmask 255.255.255.240 {
 }
 
 # VLAN 330 (Администраторы)
-subnet 192.168.11.80 netmask 255.255.255.240 {
+subnet 192.168.11.80 netmask 255.255.255.248 {
         option routers                  192.168.11.81;
-        option subnet-mask              255.255.255.240;
+        option subnet-mask              255.255.255.248;
         option domain-name              "au.team";
         option domain-name-servers      8.8.8.8;
-        range dynamic-bootp 192.168.11.82 192.168.11.94;
+        range dynamic-bootp 192.168.11.82 192.168.11.86;
 }
+
 ```
 
 В файле `/etc/sysconfig/dhcpd` указать сетевой адаптер, на котором идет раздача ip адресов (enp0s8)
@@ -458,6 +459,80 @@ reboot
 
 </details>
 
+### Настройка клиентов для работы в сетях VLAN
+<details>
+  <summary>Настройка клиентов для работы в сетях VLAN</summary>
+
+1) Включение поддержки VLAN
+Загрузите модуль:
+```
+modprobe 8021q
+```
+Чтобы модуль загружался при старте системы:
+```
+echo "8021q" | tee -a /etc/modules
+```
+
+2) Настройка интерфейсов в etcnet
+
+    Конфигурационные файлы находятся в /etc/net/ifaces/. 
+    Пусть основной интерфейс — enp0s3. Настроим VLAN 110, 220, 330.
+
+    1) **Основной интерфейс (enp0s3)**  
+    Файл: `/etc/net/ifaces/enp0s3/options`
+        ```
+        TYPE=eth
+        DISABLED=no
+        NM_CONTROLLED=no
+        BOOTPROTO=none
+        ```
+    2) **VLAN 110 (Клиенты)**   
+    Файл: `/etc/net/ifaces/enp0s3.110/options`
+        ```
+        TYPE=vlan
+        BOOTPROTO=dhcp
+        VID=110
+        CONFIG_IPV4=yes
+        HOST=enp0s3
+        ONBOOT=yes
+        ```
+    3) **VLAN 220 (Сервера)**   
+    Файл: `/etc/net/ifaces/enp0s3.220/options`
+        ```
+        TYPE=vlan
+        BOOTPROTO=dhcp
+        VID=220
+        CONFIG_IPV4=yes
+        HOST=enp0s3
+        ONBOOT=yes
+        ```
+    4) **VLAN 330 (Администраторы)**   
+    Файл: `/etc/net/ifaces/enp0s3.330/options`
+        ```
+        TYPE=vlan
+        BOOTPROTO=dhcp
+        VID=330
+        CONFIG_IPV4=yes
+        HOST=enp0s3
+        ONBOOT=yes
+        ```
+3) **Применение изменений**
+Перезапустите сетевую службу:
+```bash
+sudo systemctl restart network
+```
+4) Проверка работы
+Проверка полученных IP-адресов:
+```
+ip -c a
+```
+```
+ip route
+```
+```
+ping 192.168.11.1
+```
+</details>
 
 
 ## Настройка коммутаторов
