@@ -266,58 +266,111 @@ su-
 apt-get update
 apt-get install dhcp-server -y
 ```
-#### 1) На втором сетевом адаптере (enp0s8) настроить ip адрес:
-В директории `/etc/net/ifaces/enp0s8` (если нет, то создать командой: `mkdir /etc/net/ifaces/enp0s8`)
 
-Затем в директории создать файл с кофнигурацией ip адреса: `ipv4address`:
-```bash
-echo "192.168.11.1/24" > /etc/net/ifaces/enp0s8/ipv4address
-```
+#### 1) Настроить второй сетевой адаптер, в нашем случае, это enp0s8:
+1) `vim /etc/net/ifaces/enp0s8/options`
+    ```
+    TYPE=eth
+    DISABLED=no
+    NM_CONTROLLED=no
+    BOOTPROTO=static
+    CONFIG_IPV4=YES
+    ```
+2) Настройка модуля ядра для работы с vlan
+    ```
+    modprobe 8021q
+    echo "8021q" >> /etc/modules
+    ```
 
-Создаем файл `options` с содержимым:
-```
-TYPE=eth
-DISABLED=no
-NM_CONTROLLED=no
-BOOTPROTO=static
-CONFIG_IPV4=YES
-```
+    Проверяем:
+    ```
+    lsmod | grep 8021q
+    ```
+
+#### 2) Настройка VLAN
+Создаем виртуальные интерфейсы для VLAN на `enp0s8`
+
+1) <b>VLAN 110 (Клиенты)</b>
+    ```
+    mkdir -p /etc/net/ifaces/enp0s8.110
+    echo "192.168.11.1/24" > /etc/net/ifaces/enp0s8.110/ipv4address
+    ```
+    Создаем файл `options`:
+    ```
+    TYPE=vlan
+    HOST=enp0s8
+    BOOTPROTO=static
+    # CONFIG_IPV4=yes
+    VID=110
+    ```
+2) <b>VLAN 220 (Сервера)</b>
+    ```
+    mkdir -p /etc/net/ifaces/enp0s8.220
+    echo "192.168.11.65/24" > /etc/net/ifaces/enp0s8.220/ipv4address
+    ```
+    Создаем файл `options`:
+    ```
+    TYPE=vlan
+    HOST=enp0s8
+    BOOTPROTO=static
+    # CONFIG_IPV4=yes
+    VID=220
+    ```
+3) <b>VLAN 330 (Администраторы)</b>
+    ```
+    mkdir -p /etc/net/ifaces/enp0s8.330
+    echo "192.168.11.81/24" > /etc/net/ifaces/enp0s8.330/ipv4address
+    ```
+    Создаем файл `options`:
+    ```
+    TYPE=vlan
+    HOST=enp0s8
+    BOOTPROTO=static
+    # CONFIG_IPV4=yes
+    VID=330
+    ```
 
 Перезапускаем сетевую службу:
 ```
 systemctl restart network
 ```
 
-#### 2) настраиваем DHCP-сервер
+#### 3) настраиваем DHCP-сервер
 В файле `/etc/dhcp/dhcpd.conf`
 ```
 ddns-update-style none;
 
-subnet 192.168.11.0 netmask 255.255.255.0 { #сеть и маска подсети
-        option routers                  192.168.11.1; #адрес маршрутизатора
-        option subnet-mask              255.255.255.0; #маска подсети
+# VLAN 110 (Клиенты)
+subnet 192.168.11.0 netmask 255.255.255.192 {
+        option routers                  192.168.11.1;
+        option subnet-mask              255.255.255.192;
+        option domain-name              "au.team";
+        option domain-name-servers      8.8.8.8;
+        range dynamic-bootp 192.168.11.2 192.168.11.62;
+}
 
-        option domain-name              "au.team"; #домен
-        option domain-name-servers      8.8.8.8; #DNS-сервера для клиентов
+# VLAN 220 (Сервера)
+subnet 192.168.11.64 netmask 255.255.255.240 {
+        option routers                  192.168.11.65;
+        option subnet-mask              255.255.255.240;
+        option domain-name              "au.team";
+        option domain-name-servers      8.8.8.8;
+        range dynamic-bootp 192.168.11.66 192.168.11.78;
+}
 
-        range dynamic-bootp 192.168.11.2 192.168.11.254; #диапазон DHCP-подсети
-
-        #стандартное и максимальное время аренды (в секундах)
-        #6 часов
-        default-lease-time 21600;
-        #12 часов
-        max-lease-time 43200;
+# VLAN 330 (Администраторы)
+subnet 192.168.11.80 netmask 255.255.255.240 {
+        option routers                  192.168.11.81;
+        option subnet-mask              255.255.255.240;
+        option domain-name              "au.team";
+        option domain-name-servers      8.8.8.8;
+        range dynamic-bootp 192.168.11.82 192.168.11.94;
 }
 ```
 
 В файле `/etc/sysconfig/dhcpd` указать сетевой адаптер, на котором идет раздача ip адресов (enp0s8)
 ```
-# The following variables are recognized:
-
-DHCPDARGS=enp0s8
-
-# Default value if chroot mode disabled.
-#CHROOT="-j / -lf /var/lib/dhcp/dhcpd/state/dhcpd.leases"
+DHCPDARGS="enp0s8.110 enp0s8.220 enp0s8.330"
 ```
 
 Запускаем службу dhcp-сервера (из под рута):
@@ -355,9 +408,24 @@ net.ipv4.ip_forward = 1
 #### Настраиваем NAT (маскарадинг)
 Разрешаем трафик из локальной сети через интерфейс с интернетом:
 ```
+# Маскарадинг для доступа в интернет
 iptables -t nat -A POSTROUTING -o enp0s3 -j MASQUERADE
-iptables -A FORWARD -i enp0s8 -o enp0s3 -j ACCEPT
-iptables -A FORWARD -i enp0s3 -o enp0s8 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Маршрутизация между VLAN
+iptables -A FORWARD -i enp0s8.110 -o enp0s8.220 -j ACCEPT
+iptables -A FORWARD -i enp0s8.220 -o enp0s8.110 -j ACCEPT
+
+iptables -A FORWARD -i enp0s8.110 -o enp0s8.330 -j ACCEPT
+iptables -A FORWARD -i enp0s8.330 -o enp0s8.110 -j ACCEPT
+
+iptables -A FORWARD -i enp0s8.220 -o enp0s8.330 -j ACCEPT
+iptables -A FORWARD -i enp0s8.330 -o enp0s8.220 -j ACCEPT
+
+# Доступ в интернет
+iptables -A FORWARD -i enp0s8.110 -o enp0s3 -j ACCEPT
+iptables -A FORWARD -i enp0s8.220 -o enp0s3 -j ACCEPT
+iptables -A FORWARD -i enp0s8.330 -o enp0s3 -j ACCEPT
+
 ```
 
 Сохранение конфигурации
@@ -387,50 +455,6 @@ reboot
 Настройка аналогична настройке роутера R-HQ за исключением конфигурации входящей и выходящей сетей. 
 
 <b>Внимание: название сетевых адаптеров в вашем случае может отличаться!!</b>
-
-Первым делом нужно настроить IP адрес от провайдера, в нашем случае, это `172.16.4.15` в сети `172.16.4.0/28`, где 16 доступных адресов для адресации. Таким образом, нам нужен старший адрес, которым является `15`.
-
-```
-vim /etc/net/ifaces/enp0s3/options
-```
-```
-TYPE=eth
-DISABLED=no
-NM_CONTROLLED=no
-BOOTPROTO=static
-CONFIG_IPV4=YES
-```
-```bash
-echo "172.16.4.15/28" > /etc/net/ifaces/enp0s3/ipv4address
-```
-```bash
-echo "default via 172.16.4.1" > /etc/net/ifaces/enp0s3/ipv4route
-```
-
-```bash
-echo "192.168.33.1/24" > /etc/net/ifaces/enp0s8/ipv4address
-```
-
-В файле `/etc/dhcp/dhcpd.conf`
-```
-ddns-update-style none;
-
-subnet 192.168.33.0 netmask 255.255.255.0 { #сеть и маска подсети
-        option routers                  192.168.33.1; #адрес маршрутизатора
-        option subnet-mask              255.255.255.0; #маска подсети
-
-        option domain-name              "au.team"; #домен
-        option domain-name-servers      8.8.8.8; #DNS-сервера для клиентов
-
-        range dynamic-bootp 192.168.33.2 192.168.33.254; #диапазон DHCP-подсети
-
-        #стандартное и максимальное время аренды (в секундах)
-        #6 часов
-        default-lease-time 21600;
-        #12 часов
-        max-lease-time 43200;
-}
-```
 
 </details>
 
