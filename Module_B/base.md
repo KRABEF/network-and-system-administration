@@ -48,3 +48,8 @@ hostname
 cat /etc/hostname
 ```
 
+## Просмотр логов
+```bash
+journalctl
+```
+
