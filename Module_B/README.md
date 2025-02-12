@@ -96,6 +96,29 @@ systemctl enable serial-getty@ttyS0.service
 
 ## Базовая настройка Alt Linux
 
+
+<details>
+  <summary>Установка имени ВМ</summary>
+
+### Установка имени ВМ
+
+(через рут)
+```
+hostnamectl set-hostname имя_пк
+```
+
+После этого выходим из системы или перезагружаемся.
+
+Для проверки корректности установки имени ПК выполнить команду:
+```bash
+hostnamectl
+# или
+hostname
+# или
+cat /etc/hostname
+```
+</details>
+
 <details>
 <summary>Создание пользователя:</summary>
 
