@@ -687,3 +687,181 @@ mrp             20480   1   8021q
 ```
 
 </details>
+
+## Настройка DNS для SRV-HQ и SRV-BR
+
+i.	Реализуйте основной DNS сервер компании на SRV-HQ  
+&ensp; a.	Для всех устройств обоих офисов необходимо создать записи A и PTR.  
+&ensp; b.	Для всех сервисов предприятия необходимо создать записи CNAME.  
+&ensp; c.	Создайте запись test таким образом, чтобы при разрешении имени из левого офиса имя разрешалось в адрес SRV-HQ, а из правого – в адрес SRV-BR.  
+&ensp; d.	Сконфигурируйте SRV-BR, как резервный DNS сервер. Загрузка записей с SRV-HQ должна быть разрешена только для SRV-BR.  
+&ensp; e.	Клиенты предприятия должны быть настроены на использование внутренних DNS серверов  
+
+[Взято тут](https://github.com/abdurrah1m/Professionals_2024)
+
+**Внимание: IP адреса отличаются!! См. выше.**
+
+<details>
+  <summary>Настройка DNS для SRV-HQ и SRV-BR</summary>
+
+### SRV-HQ
+
+Установка bind и bind-utils:
+```
+apt-get update && apt-get install -y bind bind-utils
+```
+Конфиг:
+```
+nano /etc/bind/options.conf
+```
+```
+listen-on { any; };
+allow-query { any; };
+allow-transfer { 10.0.20.2; }; 
+```
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/12ad33f9-2df1-47e7-ad7a-1788b2276c88)
+
+Включаем resolv:
+```
+nano /etc/net/ifaces/ens18/resolv.conf
+```
+```
+systemctl restart network
+```
+Автозагрузка bind:
+```
+systemctl enable --now bind
+```
+Создаем прямую и обратные зоны:
+```
+nano /etc/bind/local.conf
+```
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/74bbb72d-1577-413d-969c-bff4497d0b9c)
+
+Копируем дефолты:
+```
+cp /etc/bind/zone/{localhost,company.db}
+```
+```
+cp /etc/bind/zone/127.in-addr.arpa /etc/bind/zone/10.0.10.in-addr.arpa.db
+```
+```
+cp /etc/bind/zone/127.in-addr.arpa /etc/bind/zone/20.0.10.in-addr.arpa.db
+```
+Назначаем права:
+```
+chown root:named /etc/bind/zone/company.db
+```
+```
+chown root:named /etc/bind/zone/10.0.10.in-addr.arpa.db
+```
+```
+chown root:named /etc/bind/zone/20.0.10.in-addr.arpa.db
+```
+Настраиваем зону прямого просмотра `/etc/bind/zone/company.prof`:
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/9d3bddf9-e8db-4cfc-8971-b3a6ff0f38ac)
+
+Настраиваем зону обратного просмотра `/etc/bind/zone/10.0.10.in-addr.arpa.db`:
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/3fee1532-458b-4e10-967f-b858a4a43b63)
+
+Настраиваем зону обратного просмотра `/etc/bind/zone/20.0.10.in-addr.arpa.db`:
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/c9f18689-b324-4125-836d-91bdb23b1075)
+
+Проверка зон:
+```
+named-checkconf -z
+```
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/d2de05e9-3830-4846-86a1-2974bb64dbf5)
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/e1b6fb80-63df-4cf5-8dd6-2f3d46a1dc3b)
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/21d53c0b-27d9-4af9-bbe3-b64035b0ffad)
+
+### SRV-BR
+
+Конфиг
+```
+vim /etc/bind/options.conf
+```
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/e90d49ce-6735-4fdb-b44a-0b1c62b8305a)
+
+Добавляем зоны
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/ea22291d-0b41-4044-a271-1fbb32f26185)
+
+Резолв `/etc/net/ifaces/ens18/resolv.conf`:
+```
+search company.prof
+nameserver 10.0.10.2
+nameserver 10.0.20.2
+```
+Перезапуск адаптера:
+```
+systemctl restart network
+```
+Автозагрузка:
+```
+systemctl enable --now bind
+```
+SLAVE:
+```
+control bind-slave enabled
+```
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/dc174c7e-e960-42c6-8b9d-7522df00989a)
+
+Разрешение имени хоста test
+
+### SRV-HQ
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/a73800a1-b7cf-48e3-8160-49b3b14a0060)
+
+Копируем дефолт для зоны:
+```
+cp /etc/bind/zone/{localdomain,test.company.db}
+```
+
+Задаём права, владельца:
+```
+chown root:named /etc/bind/zone/test.company.db
+```
+Настраиваем зону:
+```
+vim /etc/bind/zone/test.company.db
+```
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/ae1dcd6e-d5b9-4980-8105-d14b74905083)
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/c8735610-56d5-419b-bdc8-3efc48a969b0)
+
+Перезапускаем:
+```
+systemctl restart bind
+```
+
+### SRV-BR
+Добавляем зону `/etc/bind/local.conf`:
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/2d279b81-8bfd-453b-8efa-dc3d87476c40)
+
+Задаём права, владельца:
+```
+chown root:named /etc/bind/zone/test.company.db
+```
+
+Редактируем зону `/etc/bind/zone/test.company.db`:
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/1aa398ac-dd3a-4887-b975-14ff7a3bf633)
+
+Перезапускаем:
+```
+systemctl restart bind
+```
+
+</details>
