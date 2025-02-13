@@ -865,3 +865,114 @@ systemctl restart bind
 ```
 
 </details>
+
+## Настройте синхронизацию времени между сетевыми устройствами по протоколу NTP. 
+a) В качестве сервера должен выступать SRV1-HQ 
+1. Используйте стратум 5 
+2. Используйте ntp2.vniiftri.ru в качестве внешнего сервера синхронизации времени
+
+b) Все устройства должны синхронизировать своё время с SRV1-HQ. 
+	1. Используйте chrony, где это возможно 
+
+c) Используйте на всех устройствах московский часовой пояс.
+
+
+<details>
+  <summary>Настройте синхронизацию времени между сетевыми устройствами по протоколу NTP.</summary>
+
+### 1. Установка Chrony на всех устройствах:
+```
+apt-get update && apt-get install chrony -y
+```
+### 2. Настройка NTP-сервера на SRV1-HQ:
+Открываем конфигурационный файл:
+```
+vim /etc/chrony.conf
+```
+Вносим изменения:
+```
+# Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (https://www.pool.ntp.org/join.html).
+# pool pool.ntp.org iburst
+server ntp2.vniiftri.ru iburst
+
+# Record the rate at which the system clock gains/losses time.
+driftfile /var/lib/chrony/drift
+
+# Allow the system clock to be stepped in the first three updates
+# if its offset is larger than 1 second.
+makestep 1.0 3
+
+# Enable kernel synchronization of the real-time clock (RTC).
+rtcsync
+
+# Allow NTP client access from local network.
+allow 0.0.0.0/0
+
+# Serve time even if not synchronized to a time source.
+local stratum 5
+```
+**Перезапуск Chrony:**
+```
+systemctl restart chronyd
+systemctl enable chronyd
+```
+**Проверка статуса:**
+```
+chronyc tracking
+chronyc sources
+```
+
+### 3. Настройка клиентов (всех остальных устройств):
+На всех устройствах, кроме SRV1-HQ, редактируем конфигурацию:
+```
+vim /etc/chrony.conf
+```
+Изменяем настройки: (ip адрес может отличаться)
+```
+# Указываем IP SRV1-HQ
+server 192.168.11.1 iburst # поправить тут
+
+# Сохраняем сведения о состоянии времени
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+```
+
+**Перезапуск Chrony:**
+```
+systemctl restart chronyd
+systemctl enable chronyd
+```
+**Проверка статуса:**
+```
+chronyc tracking
+chronyc sources
+```
+
+### 4. Установка часового пояса:
+На всех устройствах выполняем команду:
+```
+timedatectl set-timezone Asia/Yekaterinburg 
+```
+**Проверка:**
+```bash
+timedatectl status | grep 'Time zone:'
+```
+В выводе должно быть:
+```
+Time zone: Asia/Yekaterinburg (+05, +0500)
+```
+### 5. Проверка работы синхронизации:
+**На сервере (SRV1-HQ):**
+```
+chronyc sources -v
+```
+Должна быть видна строка с `ntp2.vniiftri.ru`.
+
+**На клиентах:**
+```
+chronyc sources -v
+```
+Должна быть видна строка с IP-адресом SRV1-HQ.
+
+</details>
