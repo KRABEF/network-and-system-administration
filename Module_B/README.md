@@ -293,7 +293,7 @@ apt-get install dhcp-server -y
 1) <b>VLAN 110 (Клиенты)</b>
     ```
     mkdir -p /etc/net/ifaces/enp0s8.110
-    echo "192.168.11.1/24" > /etc/net/ifaces/enp0s8.110/ipv4address
+    echo "192.168.11.1/26" > /etc/net/ifaces/enp0s8.110/ipv4address
     ```
     Создаем файл `options`:
     ```
@@ -306,7 +306,7 @@ apt-get install dhcp-server -y
 2) <b>VLAN 220 (Сервера)</b>
     ```
     mkdir -p /etc/net/ifaces/enp0s8.220
-    echo "192.168.11.65/24" > /etc/net/ifaces/enp0s8.220/ipv4address
+    echo "192.168.11.65/28" > /etc/net/ifaces/enp0s8.220/ipv4address
     ```
     Создаем файл `options`:
     ```
@@ -319,7 +319,7 @@ apt-get install dhcp-server -y
 3) <b>VLAN 330 (Администраторы)</b>
     ```
     mkdir -p /etc/net/ifaces/enp0s8.330
-    echo "192.168.11.81/24" > /etc/net/ifaces/enp0s8.330/ipv4address
+    echo "192.168.11.81/29" > /etc/net/ifaces/enp0s8.330/ipv4address
     ```
     Создаем файл `options`:
     ```
@@ -359,13 +359,14 @@ subnet 192.168.11.64 netmask 255.255.255.240 {
 }
 
 # VLAN 330 (Администраторы)
-subnet 192.168.11.80 netmask 255.255.255.240 {
+subnet 192.168.11.80 netmask 255.255.255.248 {
         option routers                  192.168.11.81;
-        option subnet-mask              255.255.255.240;
+        option subnet-mask              255.255.255.248;
         option domain-name              "au.team";
         option domain-name-servers      8.8.8.8;
-        range dynamic-bootp 192.168.11.82 192.168.11.94;
+        range dynamic-bootp 192.168.11.82 192.168.11.86;
 }
+
 ```
 
 В файле `/etc/sysconfig/dhcpd` указать сетевой адаптер, на котором идет раздача ip адресов (enp0s8)
@@ -458,6 +459,80 @@ reboot
 
 </details>
 
+### Настройка клиентов для работы в сетях VLAN
+<details>
+  <summary>Настройка клиентов для работы в сетях VLAN</summary>
+
+1) Включение поддержки VLAN
+Загрузите модуль:
+```
+modprobe 8021q
+```
+Чтобы модуль загружался при старте системы:
+```
+echo "8021q" | tee -a /etc/modules
+```
+
+2) Настройка интерфейсов в etcnet
+
+    Конфигурационные файлы находятся в /etc/net/ifaces/. 
+    Пусть основной интерфейс — enp0s3. Настроим VLAN 110, 220, 330.
+
+    1) **Основной интерфейс (enp0s3)**  
+    Файл: `/etc/net/ifaces/enp0s3/options`
+        ```
+        TYPE=eth
+        DISABLED=no
+        NM_CONTROLLED=no
+        BOOTPROTO=none
+        ```
+    2) **VLAN 110 (Клиенты)**   
+    Файл: `/etc/net/ifaces/enp0s3.110/options`
+        ```
+        TYPE=vlan
+        BOOTPROTO=dhcp
+        VID=110
+        CONFIG_IPV4=yes
+        HOST=enp0s3
+        ONBOOT=yes
+        ```
+    3) **VLAN 220 (Сервера)**   
+    Файл: `/etc/net/ifaces/enp0s3.220/options`
+        ```
+        TYPE=vlan
+        BOOTPROTO=dhcp
+        VID=220
+        CONFIG_IPV4=yes
+        HOST=enp0s3
+        ONBOOT=yes
+        ```
+    4) **VLAN 330 (Администраторы)**   
+    Файл: `/etc/net/ifaces/enp0s3.330/options`
+        ```
+        TYPE=vlan
+        BOOTPROTO=dhcp
+        VID=330
+        CONFIG_IPV4=yes
+        HOST=enp0s3
+        ONBOOT=yes
+        ```
+3) **Применение изменений**
+Перезапустите сетевую службу:
+```bash
+sudo systemctl restart network
+```
+4) Проверка работы
+Проверка полученных IP-адресов:
+```
+ip -c a
+```
+```
+ip route
+```
+```
+ping 192.168.11.1
+```
+</details>
 
 
 ## Настройка коммутаторов
@@ -610,5 +685,319 @@ lsmod | grep 8021q
 garp            16384   1   8021q
 mrp             20480   1   8021q
 ```
+
+</details>
+
+## Настройка DNS для SRV-HQ и SRV-BR
+
+i.	Реализуйте основной DNS сервер компании на SRV-HQ  
+&ensp; a.	Для всех устройств обоих офисов необходимо создать записи A и PTR.  
+&ensp; b.	Для всех сервисов предприятия необходимо создать записи CNAME.  
+&ensp; c.	Создайте запись test таким образом, чтобы при разрешении имени из левого офиса имя разрешалось в адрес SRV-HQ, а из правого – в адрес SRV-BR.  
+&ensp; d.	Сконфигурируйте SRV-BR, как резервный DNS сервер. Загрузка записей с SRV-HQ должна быть разрешена только для SRV-BR.  
+&ensp; e.	Клиенты предприятия должны быть настроены на использование внутренних DNS серверов  
+
+[Взято тут](https://github.com/abdurrah1m/Professionals_2024)
+
+**Внимание: IP адреса отличаются!! См. выше.**
+
+<details>
+  <summary>Настройка DNS для SRV-HQ и SRV-BR</summary>
+
+### SRV-HQ
+
+Установка bind и bind-utils:
+```
+apt-get update && apt-get install -y bind bind-utils
+```
+Конфиг:
+```
+nano /etc/bind/options.conf
+```
+```
+listen-on { any; };
+allow-query { any; };
+allow-transfer { 10.0.20.2; }; 
+```
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/12ad33f9-2df1-47e7-ad7a-1788b2276c88)
+
+Включаем resolv:
+```
+nano /etc/net/ifaces/ens18/resolv.conf
+```
+```
+systemctl restart network
+```
+Автозагрузка bind:
+```
+systemctl enable --now bind
+```
+Создаем прямую и обратные зоны:
+```
+nano /etc/bind/local.conf
+```
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/74bbb72d-1577-413d-969c-bff4497d0b9c)
+
+Копируем дефолты:
+```
+cp /etc/bind/zone/{localhost,company.db}
+```
+```
+cp /etc/bind/zone/127.in-addr.arpa /etc/bind/zone/10.0.10.in-addr.arpa.db
+```
+```
+cp /etc/bind/zone/127.in-addr.arpa /etc/bind/zone/20.0.10.in-addr.arpa.db
+```
+Назначаем права:
+```
+chown root:named /etc/bind/zone/company.db
+```
+```
+chown root:named /etc/bind/zone/10.0.10.in-addr.arpa.db
+```
+```
+chown root:named /etc/bind/zone/20.0.10.in-addr.arpa.db
+```
+Настраиваем зону прямого просмотра `/etc/bind/zone/company.prof`:
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/9d3bddf9-e8db-4cfc-8971-b3a6ff0f38ac)
+
+Настраиваем зону обратного просмотра `/etc/bind/zone/10.0.10.in-addr.arpa.db`:
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/3fee1532-458b-4e10-967f-b858a4a43b63)
+
+Настраиваем зону обратного просмотра `/etc/bind/zone/20.0.10.in-addr.arpa.db`:
+
+![изображение](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/c9f18689-b324-4125-836d-91bdb23b1075)
+
+Проверка зон:
+```
+named-checkconf -z
+```
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/d2de05e9-3830-4846-86a1-2974bb64dbf5)
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/e1b6fb80-63df-4cf5-8dd6-2f3d46a1dc3b)
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/21d53c0b-27d9-4af9-bbe3-b64035b0ffad)
+
+### SRV-BR
+
+Конфиг
+```
+vim /etc/bind/options.conf
+```
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/e90d49ce-6735-4fdb-b44a-0b1c62b8305a)
+
+Добавляем зоны
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/ea22291d-0b41-4044-a271-1fbb32f26185)
+
+Резолв `/etc/net/ifaces/ens18/resolv.conf`:
+```
+search company.prof
+nameserver 10.0.10.2
+nameserver 10.0.20.2
+```
+Перезапуск адаптера:
+```
+systemctl restart network
+```
+Автозагрузка:
+```
+systemctl enable --now bind
+```
+SLAVE:
+```
+control bind-slave enabled
+```
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/dc174c7e-e960-42c6-8b9d-7522df00989a)
+
+Разрешение имени хоста test
+
+### SRV-HQ
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/a73800a1-b7cf-48e3-8160-49b3b14a0060)
+
+Копируем дефолт для зоны:
+```
+cp /etc/bind/zone/{localdomain,test.company.db}
+```
+
+Задаём права, владельца:
+```
+chown root:named /etc/bind/zone/test.company.db
+```
+Настраиваем зону:
+```
+vim /etc/bind/zone/test.company.db
+```
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/ae1dcd6e-d5b9-4980-8105-d14b74905083)
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/c8735610-56d5-419b-bdc8-3efc48a969b0)
+
+Перезапускаем:
+```
+systemctl restart bind
+```
+
+### SRV-BR
+Добавляем зону `/etc/bind/local.conf`:
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/2d279b81-8bfd-453b-8efa-dc3d87476c40)
+
+Задаём права, владельца:
+```
+chown root:named /etc/bind/zone/test.company.db
+```
+
+Редактируем зону `/etc/bind/zone/test.company.db`:
+
+![image](https://github.com/abdurrah1m/Professionals_2024/assets/148451230/1aa398ac-dd3a-4887-b975-14ff7a3bf633)
+
+Перезапускаем:
+```
+systemctl restart bind
+```
+
+</details>
+
+## Настройте синхронизацию времени между сетевыми устройствами по протоколу NTP. 
+a) В качестве сервера должен выступать SRV1-HQ 
+1. Используйте стратум 5 
+2. Используйте ntp2.vniiftri.ru в качестве внешнего сервера синхронизации времени
+
+b) Все устройства должны синхронизировать своё время с SRV1-HQ. 
+	1. Используйте chrony, где это возможно 
+
+c) Используйте на всех устройствах московский часовой пояс.
+
+
+<details>
+  <summary>Настройте синхронизацию времени между сетевыми устройствами по протоколу NTP.</summary>
+
+### 1. Установка Chrony на всех устройствах:
+```
+apt-get update && apt-get install chrony -y
+```
+### 2. Настройка NTP-сервера на SRV1-HQ:
+Открываем конфигурационный файл:
+```
+vim /etc/chrony.conf
+```
+Вносим изменения:
+```
+# Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (https://www.pool.ntp.org/join.html).
+# pool pool.ntp.org iburst
+server ntp2.vniiftri.ru iburst
+
+# Record the rate at which the system clock gains/losses time.
+driftfile /var/lib/chrony/drift
+
+# Allow the system clock to be stepped in the first three updates
+# if its offset is larger than 1 second.
+makestep 1.0 3
+
+# Enable kernel synchronization of the real-time clock (RTC).
+rtcsync
+
+# Allow NTP client access from local network.
+allow 0.0.0.0/0
+
+# Serve time even if not synchronized to a time source.
+local stratum 5
+```
+**Перезапуск Chrony:**
+```
+systemctl restart chronyd
+systemctl enable chronyd
+```
+**Проверка статуса:**
+```
+chronyc tracking
+chronyc sources
+```
+
+### 3. Настройка клиентов (всех остальных устройств):
+На всех устройствах, кроме SRV1-HQ, редактируем конфигурацию:
+```
+vim /etc/chrony.conf
+```
+Изменяем настройки: (ip адрес может отличаться)
+```
+# Указываем IP SRV1-HQ
+server 192.168.11.1 iburst # поправить тут
+
+# Сохраняем сведения о состоянии времени
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+```
+
+**Перезапуск Chrony:**
+```
+systemctl restart chronyd
+systemctl enable chronyd
+```
+**Проверка статуса:**
+```
+chronyc tracking
+chronyc sources
+```
+
+### 4. Установка часового пояса:
+На всех устройствах выполняем команду:
+```
+timedatectl set-timezone Asia/Yekaterinburg 
+```
+**Проверка:**
+```bash
+timedatectl status | grep 'Time zone:'
+```
+В выводе должно быть:
+```
+Time zone: Asia/Yekaterinburg (+05, +0500)
+```
+### 5. Проверка работы синхронизации:
+**На сервере (SRV1-HQ):**
+```
+chronyc sources -v
+```
+Должна быть видна строка с `ntp2.vniiftri.ru`.
+
+**На клиентах:**
+```
+chronyc sources -v
+```
+Должна быть видна строка с IP-адресом SRV1-HQ.
+
+</details>
+
+
+## Реализация доменной инфраструктуры SAMBA AD 
+a) Сконфигурируйте основной доменный контроллер на SRV1-HQ
+1. Используйте модуль BIND9_DLZ
+2. Создайте 30 пользователей user1-user30 с паролем P@ssw0rd.
+3. Пользователи user1-user10 должны входить в состав группы group1.
+4. Пользователи user11-user20 должны входить в состав группы group2.
+5. Пользователи user21-user30 должны входить в состав группы group3.
+6. Создайте подразделения CLI и ADMIN
+i. Поместите клиентов в подразделения в зависимости от их роли.
+7. Клиентами домена являются ADMIN-DT, CLI-DT, ADMIN-HQ, CLI-HQ.
+f) В качестве резервного контроллера домена используйте SRV1-DT.
+1. Используйте модуль BIND9_DLZ
+h) Реализуйте общую папку на SRV1-HQ 
+1. Используйте название SAMBA
+2. Используйте расположение /opt/data
+
+<details>
+    <summary>Реализация доменной инфраструктуры SAMBA AD </summary>
+
+[Читай тут 1](https://www.altlinux.org/ActiveDirectory/DC)
+[Читай тут 2](https://www.altlinux.org/SambaAD_start)
 
 </details>
